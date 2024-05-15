@@ -4,8 +4,6 @@
 #include <cstdlib>
 #include <filesystem>
 #include <sstream>
-#include <pwd.h>    // For getpwuid
-#include <unistd.h> // For getuid
 
 #include <sys/sysctl.h>
 
@@ -69,25 +67,6 @@ MTL::Library* try_load_bundle(MTL::Device* device, NS::URL* url) {
 }
 #endif
 
-inline const char* getGrammarlyLibraryPath() {
-  // Get the HOME environment variable
-  const char* homeDir = getenv("HOME");
-  if (homeDir == nullptr) {
-    // If HOME is not set, fall back to getting the home directory from the password entry
-    struct passwd* pw = getpwuid(getuid());
-    if (pw == nullptr || pw->pw_dir == nullptr) {
-        std::ostringstream msg;
-        msg << "Error: HOME environment variable not set and unable to get home directory from password entry.\n";
-        return nullptr;
-    }
-    homeDir = pw->pw_dir;
-  }
-
-  // Construct the full path
-  static std::string path = std::string(homeDir) + "/Library/Application Support/com.grammarly.ProjectLlama/mlx.metallib";
-  return path.c_str();
-}
-
 MTL::Library* load_library(
     MTL::Device* device,
     const std::string& lib_name = "mlx",
@@ -131,18 +110,28 @@ MTL::Library* load_library(
 
   // Couldn't find it in the app bundle, let's try the Application support path
   {
-    auto [lib, error] = load_library_from_path(device, getGrammarlyLibraryPath());
+    auto [lib, error] = load_library_from_path(device, lib_path);
+    if (lib) {
+      return lib;
+    }
+  }
+
+  // Couldn't find it in the app bundle, let's try the Application support path
+  {
+    // Get the HOME environment variable
+    const char* homeDir = getenv("HOME");
+    std::string path = std::string(homeDir) +
+        "/Library/Application Support/com.grammarly.ProjectLlama/mlx.metallib";
+    auto [lib, error] = load_library_from_path(device, path.c_str());
     if (!lib) {
       std::ostringstream msg;
       msg << error->localizedDescription()->utf8String() << "\n"
           << "Failed to load device library from <" << lib_path << ">"
-          << " or <" << first_path << "> or <" << getGrammarlyLibraryPath() << ">";
+          << " or <" << first_path << "> or <" << path.c_str() << ">";
       throw std::runtime_error(msg.str());
     }
     return lib;
   }
-
-
 }
 
 } // namespace
@@ -311,7 +300,8 @@ MTL::Library* Device::get_library_(const std::string& source_string) {
   // Throw error if unable to compile library
   if (!mtl_lib) {
     std::ostringstream msg;
-    msg << "[metal::Device] Unable to build metal library from source" << "\n";
+    msg << "[metal::Device] Unable to build metal library from source"
+        << "\n";
     if (error) {
       msg << error->localizedDescription()->utf8String() << "\n";
     }
@@ -330,7 +320,8 @@ MTL::Library* Device::get_library_(const MTL::StitchedLibraryDescriptor* desc) {
   // Throw error if unable to compile library
   if (!mtl_lib) {
     std::ostringstream msg;
-    msg << "[metal::Device] Unable to build stitched metal library" << "\n";
+    msg << "[metal::Device] Unable to build stitched metal library"
+        << "\n";
     if (error) {
       msg << error->localizedDescription()->utf8String() << "\n";
     }

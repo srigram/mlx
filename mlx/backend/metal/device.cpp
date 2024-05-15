@@ -1,6 +1,8 @@
 // Copyright © 2023-2024 Apple Inc.
 
 #include <dlfcn.h>
+#include <pwd.h> // For getpwuid
+#include <unistd.h> // For getuid
 #include <cstdlib>
 #include <filesystem>
 #include <sstream>
@@ -65,6 +67,27 @@ MTL::Library* try_load_bundle(MTL::Device* device, NS::URL* url) {
 }
 #endif
 
+const char* getGrammarlyLibraryPath() {
+  // Get the HOME environment variable
+  const char* homeDir = getenv("HOME");
+  if (homeDir == nullptr) {
+    // If HOME is not set, fall back to getting the home directory from the
+    // password entry
+    struct passwd* pw = getpwuid(getuid());
+    if (pw == nullptr || pw->pw_dir == nullptr) {
+      std::ostringstream msg;
+      msg << "Error: HOME environment variable not set and unable to get home directory from password entry.\n";
+      return nullptr;
+    }
+    homeDir = pw->pw_dir;
+  }
+
+  // Construct the full path
+  static std::string path = std::string(homeDir) +
+      "/Library/Application Support/com.grammarly.ProjectLlama/mlx.metallib";
+  return path.c_str();
+}
+
 MTL::Library* load_library(
     MTL::Device* device,
     const std::string& lib_name = "mlx",
@@ -101,11 +124,21 @@ MTL::Library* load_library(
   // Couldn't find it so let's load it from default_mtllib_path
   {
     auto [lib, error] = load_library_from_path(device, lib_path);
+    if (lib) {
+      return lib;
+    }
+  }
+
+  // Couldn't find it in the app bundle, let's try the Application support path
+  {
+    auto [lib, error] =
+        load_library_from_path(device, getGrammarlyLibraryPath());
     if (!lib) {
       std::ostringstream msg;
       msg << error->localizedDescription()->utf8String() << "\n"
           << "Failed to load device library from <" << lib_path << ">"
-          << " or <" << first_path << ">.";
+          << " or <" << first_path << ">"
+          << " or <" << getGrammarlyLibraryPath() << ">";
       throw std::runtime_error(msg.str());
     }
     return lib;

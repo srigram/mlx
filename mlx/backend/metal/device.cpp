@@ -69,7 +69,7 @@ MTL::Library* try_load_bundle(MTL::Device* device, NS::URL* url) {
 }
 #endif
 
-const char* getGrammarlyLibraryPath() {
+inline const char* getGrammarlyLibraryPath() {
   // Get the HOME environment variable
   const char* homeDir = getenv("HOME");
   if (homeDir == nullptr) {
